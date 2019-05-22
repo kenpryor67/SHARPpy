@@ -13,7 +13,7 @@ __all__ += ['lapse_rate', 'most_unstable_level', 'parcelx', 'bulk_rich']
 __all__ += ['bunkers_storm_motion', 'effective_inflow_layer']
 __all__ += ['convective_temp', 'esp', 'pbl_top', 'precip_eff', 'dcape', 'sig_severe']
 __all__ += ['dgz', 'ship', 'stp_cin', 'stp_fixed', 'scp', 'mmp', 'wndg', 'sherb', 'tei', 'cape']
-__all__ += ['mburst', 'dcp', 'ehi', 'sweat', 'hgz', 'lhp']
+__all__ += ['mburst1', 'mburst2', 'dcp', 'ehi', 'sweat', 'hgz', 'lhp']
 
 
 class DefineParcel(object):
@@ -2457,10 +2457,10 @@ def wndg(prof, **kwargs):
     mean_wind = winds.mean_wind(prof, pbot=bot, ptop=top) # needs to be in m/s
     mean_wind = utils.KTS2MS(utils.mag(mean_wind[0], mean_wind[1]))
     mlcin = mlpcl.bminus # J/kg
-    
+    """
     if lr03 < 7:
         lr03 = 0.
-    
+    """
     if mlcin < -50:
         mlcin = -50.
     wndg = (mlcape / 2000.) * (lr03 / 9.) * (mean_wind / 15.) * ((50. + mlcin)/40.)
@@ -2720,25 +2720,25 @@ def dcp(prof):
 
     return dcp
 
-
-def mburst(prof):
+def mburst1(prof):
     '''
-        Microburst Composite Index
+        Microburst Windspeed Potential Index (MWPI)
 
-        Formulated by Chad Entremont NWS JAN 12/7/2014
-        Code donated by Rich Thompson (SPC)
+        Formulated by Kenneth Pryor NOAA/NESDIS/STAR
+        
+        The Microburst Windspeed Potential Index (MWPI) is designed to quantify the most relevant factors
+        in convective downburst generation in intermediate thermodynamic environments by incorporating 1) surface-based
+        CAPE, 2) the temperature lapse rate between the 670- and 850-mb levels, and 3) DDD between the 670- and
+        850-mb levels. The MWPI formula consists of a set of predictor variables (i.e., dewpoint depression
+        and temperature lapse rate) that generates output of the expected microburst risk. 
+        Scaling factors of 1000 J/kg, 5 C/km, and 5 C, respectively, are applied to the MWPI algorithm
+        to yield a unitless MWPI value that expresses wind gust potential on a scale from 1 to 5:
 
-        Below is taken from the SPC Mesoanalysis:
-        The Microburst Composite is a weighted sum of the following individual parameters: SBCAPE, SBLI,
-        lapse rates, vertical totals (850-500 mb temperature difference), DCAPE, and precipitable water.
-        The specific terms and weights are listed below:
-
-
-        All of the terms are summed to arrive at the final microburst composite value.
-        The values can be interpreted in the following manner: 3-4 infers a "slight chance" of a microburst;
-        5-8 infers a "chance" of a microburst; >= 9 infers that microbursts are "likely".
-        These values can also be viewed as conditional upon the existence of a storm.
-
+        MWPI = (CAPE/1000) + LR/5 + DDD/5 
+        
+        Reference:
+        Pryor, K. L., 2015: Progress and Developments of Downburst Prediction Applications of GOES. Wea. Forecasting, 30, 1182–1200.
+        
         Parameters
         ----------
         prof : Profile object
@@ -2746,112 +2746,123 @@ def mburst(prof):
         Returns
         -------
         mburst : number
-            Microburst Composite (unitless)
+            MWPI (unitless)
     '''
+    #sbpcl = getattr(prof, 'sfcpcl', parcelx(prof, flag=1))
+    #sb_cape = sbpcl.bplus
+    
+    mupcl = getattr(prof, 'mupcl', parcelx(prof, flag=1))
+    mu_cape = mupcl.bplus
+    """  
+    #MWPI calculation for 500-700 mb layer
+    lr75 = lapse_rate(prof, 700, 500, pres=True)
+    t5 = interp.temp(prof, 500.)
+    t7 = interp.temp(prof, 700.)
+    td5 = interp.dwpt(prof, 500.)
+    td7 = interp.dwpt(prof, 700.)
+    dd5 = t5 - td5
+    dd7 = t7 - td7
+    ddd = dd7 - dd5
+    #mburst = (sb_cape/1000) + (lr75/5) + (ddd/5)
+    mburst = (mu_cape/1000) + (lr75/5) + (ddd/5)
+    """    
+    #MWPI calculation for 650-850 mb layer
+    lr86 = lapse_rate(prof, 850, 650, pres=True)
+    t6 = interp.temp(prof, 650.)
+    t8 = interp.temp(prof, 850.)
+    td6 = interp.dwpt(prof, 650.)
+    td8 = interp.dwpt(prof, 850.)
+    dd6 = t6 - td6
+    dd8 = t8 - td8
+    ddd = dd8 - dd6
+    #mburst = (sb_cape/1000) + (lr85/5) + (ddd/5)
+    mburst1 = (mu_cape/1000) + (lr86/5) + (ddd/5)
+    """
+    #MWPI calculation for surface-based mixed layer
+    lr950_750 = lapse_rate(prof, 950, 750, pres=True)
+    t750 = interp.temp(prof, 750.)
+    t950 = interp.temp(prof, 950.)
+    td750 = interp.dwpt(prof, 750.)
+    td950 = interp.dwpt(prof, 950.)
+    dd750 = t750 - td750
+    dd950 = t950 - td950
+    ddd = dd950 - dd750
+    #mburst = (sb_cape/1000) + (lr975_850/5) + (ddd/5)
+    mburst = (mu_cape/1000) + (lr950_750/5) + (ddd/5)
+    """  
+    return mburst1
 
-    sbpcl = getattr(prof, 'sfcpcl', parcelx(prof, flag=1))
-    lr03 = getattr(prof, 'lapserate_3km', lapse_rate( prof, 0., 3000., pres=False ))
-    tt = getattr(prof, 'totals_totals', t_totals( prof ))
-    dcape_val = getattr(prof, 'dcape', dcape( prof )[0])
-    pwat = getattr(prof, 'pwat', precip_water( prof ))
-    tei_val = thetae_diff(prof)
+def mburst2(prof):
+    '''
+        Microburst Windspeed Potential Index (MWPI)
 
-    sfc_thetae = thermo.thetae(sbpcl.lplvals.pres, sbpcl.lplvals.tmpc, sbpcl.lplvals.dwpc)
+        Formulated by Kenneth Pryor NOAA/NESDIS/STAR
+        
+        The Microburst Windspeed Potential Index (MWPI) is designed to quantify the most relevant factors
+        in convective downburst generation in intermediate thermodynamic environments by incorporating 1) surface-based
+        CAPE, 2) the temperature lapse rate between the 670- and 850-mb levels, and 3) DDD between the 670- and
+        850-mb levels. The MWPI formula consists of a set of predictor variables (i.e., dewpoint depression
+        and temperature lapse rate) that generates output of the expected microburst risk. 
+        Scaling factors of 1000 J/kg, 5 C/km, and 5 C, respectively, are applied to the MWPI algorithm
+        to yield a unitless MWPI value that expresses wind gust potential on a scale from 1 to 5:
 
-    # SFC Theta-E term
-    if thermo.ctok(sfc_thetae) >= 355:
-        te = 1
-    else:
-        te = 0
+        MWPI = (CAPE/1000) + LR/5 + DDD/5 
+        
+        Reference:
+        Pryor, K. L., 2015: Progress and Developments of Downburst Prediction Applications of GOES. Wea. Forecasting, 30, 1182–1200.
+        
+        Parameters
+        ----------
+        prof : Profile object
 
-    # Surface-based CAPE Term
-    if not utils.QC(sbpcl.bplus):
-        sbcape_term = np.nan
-    else:
-        if sbpcl.bplus < 2000:
-            sbcape_term = -5
-        if sbpcl.bplus >= 2000:
-            sbcape_term = 0
-        if sbpcl.bplus >= 3300:
-            sbcape_term = 1
-        if sbpcl.bplus >= 3700:
-            sbcape_term = 2
-        if sbpcl.bplus >= 4300:
-            sbcape_term = 4
-
-    # Surface based LI term
-    if not utils.QC(sbpcl.li5):
-        sbli_term = np.nan
-    else:
-        if sbpcl.li5 > -7.5:
-            sbli_term = 0
-        if sbpcl.li5 <= -7.5:
-            sbli_term = 1
-        if sbpcl.li5 <= -9.0:
-            sbli_term = 2
-        if sbpcl.li5 <= -10.0:
-            sbli_term = 3
-
-    # PWAT Term
-    if not utils.QC(pwat):
-        pwat_term = np.nan
-    else:
-        if pwat < 1.5:
-            pwat_term = -3
-        else:
-            pwat_term = 0
-
-    # DCAPE Term
-    if not utils.QC(dcape_val):
-        dcape_term = np.nan
-    else:
-        if pwat > 1.70:
-            if dcape_val > 900:
-                dcape_term = 1
-            else:
-                dcape_term = 0
-        else:
-            dcape_term = 0
-
-    # Lapse Rate Term
-    if not utils.QC(lr03):
-        lr03_term = np.nan
-    else:
-        if lr03 <= 8.4:
-            lr03_term = 0
-        else:
-            lr03_term = 1
-
-    # Vertical Total Totals term
-    if not utils.QC(tt):
-        tt_term = np.nan
-    else:
-        if tt < 27:
-            tt_term = 0
-        elif tt >= 27 and tt < 28:
-            tt_term = 1
-        elif tt >= 28 and tt < 29:
-            tt_term = 2
-        else:
-            tt_term = 3
-
-    # TEI term?
-    if not utils.QC(tei_val):
-        ted = np.nan
-    else:
-        if tei_val >= 35:
-            ted = 1
-        else:
-            ted = 0
-
-    mburst = te + sbcape_term + sbli_term + pwat_term + dcape_term + lr03_term + tt_term + ted
-
-    if mburst < 0:
-        mburst = 0
-    if np.isnan(mburst):
-        mburst = np.ma.masked
-
-    return mburst
+        Returns
+        -------
+        mburst : number
+            MWPI (unitless)
+    '''
+    #sbpcl = getattr(prof, 'sfcpcl', parcelx(prof, flag=1))
+    #sb_cape = sbpcl.bplus
+    
+    mupcl = getattr(prof, 'mupcl', parcelx(prof, flag=1))
+    mu_cape = mupcl.bplus
+    """  
+    #MWPI calculation for 500-700 mb layer
+    lr75 = lapse_rate(prof, 700, 500, pres=True)
+    t5 = interp.temp(prof, 500.)
+    t7 = interp.temp(prof, 700.)
+    td5 = interp.dwpt(prof, 500.)
+    td7 = interp.dwpt(prof, 700.)
+    dd5 = t5 - td5
+    dd7 = t7 - td7
+    ddd = dd7 - dd5
+    #mburst = (sb_cape/1000) + (lr75/5) + (ddd/5)
+    mburst = (mu_cape/1000) + (lr75/5) + (ddd/5)
+        
+    #MWPI calculation for 650-850 mb layer
+    lr86 = lapse_rate(prof, 850, 650, pres=True)
+    t6 = interp.temp(prof, 650.)
+    t8 = interp.temp(prof, 850.)
+    td6 = interp.dwpt(prof, 650.)
+    td8 = interp.dwpt(prof, 850.)
+    dd6 = t6 - td6
+    dd8 = t8 - td8
+    ddd = dd8 - dd6
+    #mburst = (sb_cape/1000) + (lr85/5) + (ddd/5)
+    mburst = (mu_cape/1000) + (lr86/5) + (ddd/5)
+    """
+    #MWPI calculation for surface-based mixed layer
+    lr950_750 = lapse_rate(prof, 950, 750, pres=True)
+    t750 = interp.temp(prof, 750.)
+    t950 = interp.temp(prof, 950.)
+    td750 = interp.dwpt(prof, 750.)
+    td950 = interp.dwpt(prof, 950.)
+    dd750 = t750 - td750
+    dd950 = t950 - td950
+    ddd = dd950 - dd750
+    #mburst = (sb_cape/1000) + (lr975_850/5) + (ddd/5)
+    mburst2 = (mu_cape/1000) + (lr950_750/5) + (ddd/5)
+      
+    return mburst2
 
 def ehi(prof, pcl, hbot, htop, stu=0, stv=0):
     '''

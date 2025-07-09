@@ -3073,144 +3073,85 @@ def dcp(prof):
     return dcp
 
 
-def mburst(prof):
+def mwpi(prof):
     '''
-        Microburst Composite Index
+        Microburst Windspeed Potential Index (MWPI)
 
-        Formulated by Chad Entremont NWS JAN 12/7/2014
-        Code donated by Rich Thompson (SPC)
+        Formulated by Kenneth Pryor NOAA/NESDIS/STAR
+        
+        The Microburst Windspeed Potential Index (MWPI) is designed to quantify the most relevant factors
+        in convective downburst generation in intermediate thermodynamic environments by incorporating 1) surface-based
+        CAPE, 2) the temperature lapse rate between the 670- and 850-mb levels, and 3) DDD between the 670- and
+        850-mb levels. The MWPI formula consists of a set of predictor variables (i.e., dewpoint depression
+        and temperature lapse rate) that generates output of the expected microburst risk. 
+        Scaling factors of 1000 J/kg, 5 C/km, and 5 C, respectively, are applied to the MWPI algorithm
+        to yield a unitless MWPI value that expresses wind gust potential on a scale from 1 to 5:
 
-        Below is taken from the SPC Mesoanalysis:
-        The Microburst Composite is a weighted sum of the following individual parameters: SBCAPE, SBLI,
-        lapse rates, vertical totals (850-500 mb temperature difference), DCAPE, and precipitable water.
-
-        All of the terms are summed to arrive at the final microburst composite value.
-        The values can be interpreted in the following manner: 3-4 infers a "slight chance" of a microburst;
-        5-8 infers a "chance" of a microburst; >= 9 infers that microbursts are "likely".
-        These values can also be viewed as conditional upon the existence of a storm.
-
-	    This code was updated on 9/11/2018 - TT was being used in the function instead of VT.
-	    The original SPC code was checked to confirm this was the problem.
-	    This error was not identified during the testing phase for some reason.
-
+        MWPI = (CAPE/1000) + LR/5 + DDD/5 
+        
+        Reference:
+        Pryor, K. L., 2015: Progress and Developments of Downburst Prediction Applications of GOES. Wea. Forecasting, 30, 1182–1200.
+        
         Parameters
         ----------
-        prof : profile object
-            Profile object
+        prof : Profile object
 
         Returns
         -------
-        mburst : number
-            Microburst Composite (unitless)
+        mwpi : number
+            MWPI (unitless)
     '''
-
-    sbpcl = getattr(prof, 'sfcpcl', None)
-    if sbpcl is None:
-        sbpcl = parcelx(prof, flag=1)
-
-    lr03 = getattr(prof, 'lapserate_3km', lapse_rate( prof, 0., 3000., pres=False ))
-    vt = getattr(prof, 'vertical_totals', v_totals(prof))
-    dcape_val = getattr(prof, 'dcape', dcape( prof )[0])
-    pwat = getattr(prof, 'pwat', precip_water( prof ))
-    tei_val = thetae_diff(prof)
-
-    sfc_thetae = thermo.thetae(sbpcl.lplvals.pres, sbpcl.lplvals.tmpc, sbpcl.lplvals.dwpc)
-
-    # SFC Theta-E term
-    if thermo.ctok(sfc_thetae) >= 355:
-        te = 1
+    #sbpcl = getattr(prof, 'sfcpcl', parcelx(prof, flag=1))
+    #sb_cape = sbpcl.bplus
+    
+    mupcl = getattr(prof, 'mupcl', parcelx(prof, flag=1))
+    mu_cape = mupcl.bplus
+    lr_hi = lapse_rate(prof, 850, 670, pres=True)
+    lr_lo = lapse_rate(prof, 950, 850, pres=True)
+    sfc = prof.pres[prof.sfc]
+    
+    if lr_hi > lr_lo:
+    #MWPI calculation for 670-850 mb layer
+        lr850_670 = lapse_rate(prof, 850, 670, pres=True)
+        t670 = interp.temp(prof, 670.)
+        t850 = interp.temp(prof, 850.)
+        td670 = interp.dwpt(prof, 670.)
+        td850 = interp.dwpt(prof, 850.)
+        dd670 = t670 - td670
+        dd850 = t850 - td850
+        ddd = dd850 - dd670
+        if ddd < 0:
+            ddd = 0
+        mwpi = (mu_cape/1000) + (lr850_670/5) + (ddd/5)
+    elif sfc < 950:
+    #MWPI calculation for 670-850 mb layer
+        lr850_670 = lapse_rate(prof, 850, 670, pres=True)
+        t670 = interp.temp(prof, 670.)
+        t850 = interp.temp(prof, 850.)
+        td670 = interp.dwpt(prof, 670.)
+        td850 = interp.dwpt(prof, 850.)
+        dd670 = t670 - td670
+        dd850 = t850 - td850
+        ddd = dd850 - dd670
+        if ddd < 0:
+            ddd = 0
+        mwpi = (mu_cape/1000) + (lr850_670/5) + (ddd/5)    
     else:
-        te = 0
-
-    # Surface-based CAPE Term
-    if not utils.QC(sbpcl.bplus):
-        sbcape_term = np.nan
-    else:
-        if sbpcl.bplus < 2000:
-            sbcape_term = -5
-        if sbpcl.bplus >= 2000:
-            sbcape_term = 0
-        if sbpcl.bplus >= 3300:
-            sbcape_term = 1
-        if sbpcl.bplus >= 3700:
-            sbcape_term = 2
-        if sbpcl.bplus >= 4300:
-            sbcape_term = 4
-
-    # Surface based LI term
-    if not utils.QC(sbpcl.li5):
-        sbli_term = np.nan
-    else:
-        if sbpcl.li5 > -7.5:
-            sbli_term = 0
-        if sbpcl.li5 <= -7.5:
-            sbli_term = 1
-        if sbpcl.li5 <= -9.0:
-            sbli_term = 2
-        if sbpcl.li5 <= -10.0:
-            sbli_term = 3
-
-    # PWAT Term
-    if not utils.QC(pwat):
-        pwat_term = np.nan
-    else:
-        if pwat < 1.5:
-            pwat_term = -3
-        else:
-            pwat_term = 0
-
-    # DCAPE Term
-    if not utils.QC(dcape_val):
-        dcape_term = np.nan
-    else:
-        if pwat > 1.70:
-            if dcape_val > 900:
-                dcape_term = 1
-            else:
-                dcape_term = 0
-        else:
-            dcape_term = 0
-
-    # Lapse Rate Term
-    if not utils.QC(lr03):
-        lr03_term = np.nan
-    else:
-        if lr03 <= 8.4:
-            lr03_term = 0
-        else:
-            lr03_term = 1
-
-    # Vertical Totals term
-    if not utils.QC(vt):
-        vt_term = np.nan
-    else:
-        if vt < 27:
-            vt_term = 0
-        elif vt >= 27 and vt < 28:
-            vt_term = 1
-        elif vt >= 28 and vt < 29:
-            vt_term = 2
-        else:
-            vt_term = 3
-
-    # TEI term?
-    if not utils.QC(tei_val):
-        ted = np.nan
-    else:
-        if tei_val >= 35:
-            ted = 1
-        else:
-            ted = 0
-
-    mburst = te + sbcape_term + sbli_term + pwat_term + dcape_term + lr03_term + vt_term + ted
-
-    if mburst < 0:
-        mburst = 0
-    if np.isnan(mburst):
-        mburst = np.ma.masked
-
-    return mburst
-
+    #MWPI calculation for surface-based mixed layer
+        lr950_850 = lapse_rate(prof, 950, 850, pres=True)
+        t850 = interp.temp(prof, 850.)
+        t950 = interp.temp(prof, 950.)
+        td850 = interp.dwpt(prof, 850.)
+        td950 = interp.dwpt(prof, 950.)
+        dd850 = t850 - td850
+        dd950 = t950 - td950
+        ddd = dd950 - dd850
+        if ddd < 0:
+            ddd = 0
+        mwpi = (mu_cape/1000) + (lr950_850/5) + (ddd/5)
+    
+    return mwpi
+    
 def ehi(prof, pcl, hbot, htop, stu=0, stv=0):
     '''
         Energy-Helicity Index
